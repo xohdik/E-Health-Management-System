@@ -28,6 +28,13 @@ const UserSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  dateOfBirth: {  // Added
+    type: Date
+  },
+  gender: {  // Added
+    type: String,
+    enum: ['male', 'female', 'other']
+  },
   createdAt: {
     type: Date,
     default: Date.now

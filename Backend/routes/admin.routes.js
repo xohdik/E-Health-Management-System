@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const { protect, authorize } = require('../middleware/auth');
 const Doctor = require('../models/Doctor');
-const Nurse = require('../models/Nurse');
 const User = require('../models/User');
 const AdminApprovalDetails = require('../models/AdminApprovalDetails');
 const sendEmail = require('../services/email');

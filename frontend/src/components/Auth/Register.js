@@ -11,35 +11,25 @@ const Register = () => {
     password2: '',
     role: 'patient',
     specialization: '',
-    availability: [
-      { day: 1, startTime: '', endTime: '' },
-      { day: 2, startTime: '', endTime: '' },
-      { day: 3, startTime: '', endTime: '' },
-      { day: 4, startTime: '', endTime: '' },
-      { day: 5, startTime: '', endTime: '' }
-    ]
+    yearsOfExperience: '',
+    dateOfBirth: '', // Added
+    gender: '' // Added
   });
-  const [showAvailability, setShowAvailability] = useState(false);
   const [formError, setFormError] = useState(null);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  const { firstName, lastName, email, password, password2, role, specialization, availability } = formData;
+  const { firstName, lastName, email, password, password2, role, specialization, yearsOfExperience, dateOfBirth, gender } = formData;
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleAvailabilityChange = (index, field, value) => {
-    const newAvailability = [...availability];
-    newAvailability[index][field] = value;
-    setFormData({ ...formData, availability: newAvailability });
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!firstName || !lastName || !email || !password || !password2) {
+    // Basic validation
+    if (!firstName || !lastName || !email || !password || !password2 || !dateOfBirth || !gender) {
       setFormError('Please fill in all fields');
       return;
     }
@@ -49,9 +39,27 @@ const Register = () => {
       return;
     }
 
-    if ((role === 'doctor' || role === 'nurse') && !specialization) {
-      setFormError('Specialization is required for doctors and nurses');
+    // Validate dateOfBirth (ensure user is at least 18 years old)
+    const birthDate = new Date(dateOfBirth);
+    const today = new Date();
+    const age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    const dayDiff = today.getDate() - birthDate.getDate();
+    const isUnderAge = age < 18 || (age === 18 && (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)));
+    if (isUnderAge) {
+      setFormError('You must be at least 18 years old to register');
       return;
+    }
+
+    if (['doctor', 'nurse'].includes(role)) {
+      if (!specialization) {
+        setFormError('Specialization is required for doctors and nurses');
+        return;
+      }
+      if (!yearsOfExperience || yearsOfExperience < 0) {
+        setFormError('Please enter a valid number of years of experience');
+        return;
+      }
     }
 
     try {
@@ -65,11 +73,17 @@ const Register = () => {
         email,
         password,
         role,
-        ...(role === 'doctor' || role === 'nurse') && {
-          specialization,
-          availability: availability.filter(a => a.startTime && a.endTime) // Send for both roles
-        }
+        dateOfBirth: new Date(dateOfBirth).toISOString(), // Convert to ISO string for backend
+        gender,
+        ...(role === 'doctor' || role === 'nurse'
+          ? {
+              specialization,
+              yearsOfExperience: parseInt(yearsOfExperience)
+            }
+          : {})
       };
+
+      console.log('Submitting registration data:', body);
 
       const response = await axios.post('http://localhost:5000/api/auth/register', body, config);
 
@@ -173,6 +187,28 @@ const Register = () => {
           </div>
 
           <div className="form-group">
+            <label htmlFor="dateOfBirth">Date of Birth</label>
+            <input
+              type="date"
+              name="dateOfBirth"
+              id="dateOfBirth"
+              value={dateOfBirth}
+              onChange={handleChange}
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="gender">Gender</label>
+            <select name="gender" id="gender" value={gender} onChange={handleChange} required>
+              <option value="">Select Gender</option>
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+
+          <div className="form-group">
             <label htmlFor="role">Account Type</label>
             <select name="role" id="role" value={role} onChange={handleChange}>
               <option value="patient">Patient</option>
@@ -182,50 +218,33 @@ const Register = () => {
           </div>
 
           {['doctor', 'nurse'].includes(role) && (
-            <div className="form-group">
-              <label htmlFor="specialization">Specialization</label>
-              <input
-                type="text"
-                name="specialization"
-                id="specialization"
-                value={specialization}
-                onChange={handleChange}
-                placeholder="Enter your specialization"
-                required
-              />
-            </div>
-          )}
-
-          {['doctor', 'nurse'].includes(role) && (
-            <div className="form-group">
-              <button
-                type="button"
-                className="btn btn-secondary btn-block collapsible-toggle"
-                onClick={() => setShowAvailability(!showAvailability)}
-              >
-                {showAvailability ? 'Hide Availability' : 'Set Availability (Optional)'}
-              </button>
-              {showAvailability && (
-                <div className="availability-container">
-                  {availability.map((slot, index) => (
-                    <div key={index} className="form-row availability-slot">
-                      <span>{['Mon', 'Tue', 'Wed', 'Thu', 'Fri'][index]}</span>
-                      <input
-                        type="time"
-                        value={slot.startTime}
-                        onChange={(e) => handleAvailabilityChange(index, 'startTime', e.target.value)}
-                      />
-                      <span>to</span>
-                      <input
-                        type="time"
-                        value={slot.endTime}
-                        onChange={(e) => handleAvailabilityChange(index, 'endTime', e.target.value)}
-                      />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <>
+              <div className="form-group">
+                <label htmlFor="specialization">Specialization</label>
+                <input
+                  type="text"
+                  name="specialization"
+                  id="specialization"
+                  value={specialization}
+                  onChange={handleChange}
+                  placeholder="Enter your specialization"
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label htmlFor="yearsOfExperience">Years of Experience</label>
+                <input
+                  type="number"
+                  name="yearsOfExperience"
+                  id="yearsOfExperience"
+                  value={yearsOfExperience}
+                  onChange={handleChange}
+                  placeholder="Enter years of experience"
+                  min="0"
+                  required
+                />
+              </div>
+            </>
           )}
 
           <button type="submit" className="btn btn-primary btn-block" disabled={loading}>

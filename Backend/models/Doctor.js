@@ -1,58 +1,31 @@
 const mongoose = require('mongoose');
 
-const AvailabilitySchema = new mongoose.Schema({
-  day: {
-    type: Number, // 0 for Sunday, 1 for Monday, etc.
-    required: true,
-    min: 0,
-    max: 6
-  },
-  startTime: {
-    type: String,
-    required: true,
-    match: /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/ // HH:MM format validation
-  },
-  endTime: {
-    type: String,
-    required: true,
-    match: /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/,
-    validate: {
-      validator: function(value) {
-        return value > this.startTime;
-      },
-      message: 'End time must be after start time'
-    }
-  }
-});
-
-const DoctorSchema = new mongoose.Schema({
+const doctorSchema = new mongoose.Schema({
   user: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true,
-    unique: true
+    required: true
   },
   specialization: {
     type: String,
     required: true,
-    trim: true
+    default: 'General Practice'
   },
-  availability: {
-    type: [AvailabilitySchema],
-    validate: {
-      validator: function(v) {
-        // Ensure no duplicate days
-        const days = v.map(a => a.day);
-        return new Set(days).size === days.length;
-      },
-      message: 'Duplicate days in availability'
+  yearsOfExperience: {
+    type: Number,
+    required: true,
+    min: 0
+  },
+  availability: [
+    {
+      day: { type: Number, required: true, min: 1, max: 7 },
+      startTime: { type: String, required: true },
+      endTime: { type: String, required: true }
     }
-  },
+  ],
   appointmentDuration: {
     type: Number,
-    default: 30,
-    min: 5,
-    max: 120
+    default: 30
   },
   telemedicineEnabled: {
     type: Boolean,
@@ -60,27 +33,9 @@ const DoctorSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['pending', 'approved', 'suspended', 'rejected'],
+    enum: ['pending', 'approved', 'rejected'],
     default: 'pending'
-  },
-  // ... other fields
-}, {
-  timestamps: true,
-  toJSON: { virtuals: true },
-  toObject: { virtuals: true }
-});
+  }
+}, { timestamps: true });
 
-// Add index for frequently queried fields
-DoctorSchema.index({ status: 1 });
-DoctorSchema.index({ specialization: 1 });
-DoctorSchema.index({ 'user': 1 }, { unique: true });
-
-// Virtual for populated user data
-DoctorSchema.virtual('userData', {
-  ref: 'User',
-  localField: 'user',
-  foreignField: '_id',
-  justOne: true
-});
-
-module.exports = mongoose.model('Doctor', DoctorSchema);
+module.exports = mongoose.model('Doctor', doctorSchema);

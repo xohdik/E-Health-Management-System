@@ -21,7 +21,7 @@ const formatAppointmentDate = (date) => {
 };
 
 // @route   GET /api/appointments
-// @desc    Get all appointments for the current user
+// @desc    Get all appointments for the current user (for dashboard)
 // @access  Private
 router.get('/', protect, async (req, res) => {
   try {
@@ -39,6 +39,7 @@ router.get('/', protect, async (req, res) => {
             select: 'firstName lastName email'
           }
         })
+        .populate('patient', 'firstName lastName email')
         .sort({ date: 1 });
     } else if (userRole === 'doctor') {
       const doctorProfile = await Doctor.findOne({ user: userId });
@@ -49,6 +50,14 @@ router.get('/', protect, async (req, res) => {
         .populate({
           path: 'patient',
           select: 'firstName lastName email'
+        })
+        .populate({
+          path: 'doctor',
+          select: '_id specialization appointmentDuration',
+          populate: {
+            path: 'user',
+            select: 'firstName lastName email'
+          }
         })
         .sort({ date: 1 });
     } else if (userRole === 'admin' || userRole === 'nurse') {
@@ -253,7 +262,7 @@ router.get('/:id', protect, async (req, res) => {
 
 // @route   POST /api/appointments/book
 // @desc    Create a new appointment with email notification
-// @access  Private
+// @access  Private (Patient only)
 router.post(
   '/book',
   [
@@ -261,9 +270,11 @@ router.post(
     [
       check('doctorId', 'Doctor ID is required').isMongoId(),
       check('date', 'Valid date is required').isISO8601(),
-      check('slot', 'Time slot is required').matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/),
+      check('duration', 'Duration must be a number').optional().isInt({ min: 15 }),
       check('type', 'Valid appointment type is required').isIn(['in-person', 'telemedicine']),
-      check('reason', 'Reason must be at least 10 characters').isLength({ min: 10 })
+      check('reason', 'Reason must be at least 5 characters').isLength({ min: 5 }),
+      check('symptoms', 'Symptoms must be at least 5 characters if provided').optional().isLength({ min: 5 }),
+      check('noShowProbability', 'No-show probability must be a number between 0 and 1').optional().isFloat({ min: 0, max: 1 }) // Add validation for noShowProbability
     ]
   ],
   async (req, res) => {
@@ -273,7 +284,12 @@ router.post(
     }
 
     try {
-      const { doctorId, date, slot, type, reason, notes } = req.body;
+      const user = await User.findById(req.user.id);
+      if (!user || user.role !== 'patient') {
+        return res.status(403).json({ message: 'Only patients can book appointments' });
+      }
+
+      const { doctorId, date, duration, type, reason, symptoms, notes, noShowProbability } = req.body; // Add noShowProbability
       const patientId = req.user.id;
 
       // Get doctor with populated user data
@@ -290,9 +306,10 @@ router.post(
       }
 
       // Parse appointment datetime
-      const [hours, minutes] = slot.split(':').map(Number);
       const appointmentDate = new Date(date);
-      appointmentDate.setHours(hours, minutes, 0, 0);
+      if (isNaN(appointmentDate)) {
+        return res.status(400).json({ message: 'Invalid date format' });
+      }
 
       // Check availability
       const existingAppointment = await Appointment.findOne({
@@ -310,10 +327,12 @@ router.post(
         doctor: doctorId,
         patient: patientId,
         date: appointmentDate,
-        duration: doctor.appointmentDuration || 30,
+        duration: duration || (doctor.appointmentDuration || 30),
         type,
         reason,
+        symptoms,
         notes,
+        noShowProbability: noShowProbability || 0, // Include noShowProbability, default to 0 if not provided
         status: 'scheduled'
       });
 

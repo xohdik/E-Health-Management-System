@@ -1,103 +1,237 @@
 const express = require('express');
 const router = express.Router();
-const { check } = require('express-validator');
+const mongoose = require('mongoose');
+const EHR = require('../models/EHR');
+const User = require('../models/User');
 const { protect } = require('../middleware/auth');
-const { checkPermission, authorize } = require('../middleware/rbac');
+const { authorize } = require('../middleware/rbac');
 
-console.log("✅ Full ehr.routes.js loaded");
+console.log("✅ EHR routes loaded");
 
-// Simple test route
-router.get('/test', (req, res) => {
-  res.send('EHR routes are working!');
-});
-
-// @route   GET /api/ehr/patient/:id
-// @desc    Get patient's medical records
-// @access  Private
-router.get('/patient/:id', protect, async (req, res) => {
+// @route   GET /api/ehr/auth/my-ehr
+// @desc    Get authenticated patient's EHR
+// @access  Private (Patient only)
+router.get('/auth/my-ehr', protect, async (req, res) => {
   try {
-    const patientId = req.params.id;
-    const userId = req.user.id;
-    const userRole = req.user.role;
-    
-    // Authorization check - users can only access their own records
-    // unless they have doctor or admin role
-    if (userRole !== 'admin' && userRole !== 'doctor' && patientId !== userId) {
-      return res.status(403).json({ message: 'Not authorized to access these records' });
+    console.log('GET /api/ehr/auth/my-ehr called');
+    const user = req.user;
+    console.log('User:', user);
+
+    if (user.role !== 'patient') {
+      console.log('User is not a patient, role:', user.role);
+      return res.status(403).json({ message: 'Not authorized, patient only' });
     }
-    
-    // Find medical records for this patient
-    // This is where you would add your database query
-    // Replace this with actual database query when ready
-    const mockRecords = [
-      {
-        recordId: '60a1b2c3d4e5f6a7b8c9d0e1',
-        recordType: 'Lab Results',
-        notes: 'Blood test results normal',
-        timestamps: {
-          created: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // 7 days ago
-        }
-      },
-      {
-        recordId: '60a1b2c3d4e5f6a7b8c9d0e2',
-        recordType: 'Prescription',
-        notes: 'Amoxicillin 500mg, 3 times daily for 10 days',
-        timestamps: {
-          created: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000), // 5 days ago
-        }
-      },
-      {
-        recordId: '60a1b2c3d4e5f6a7b8c9d0e3',
-        recordType: 'Vital Signs',
-        notes: 'BP: 120/80, Heart rate: 78bpm, Temperature: 98.6F',
-        timestamps: {
-          created: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000), // 3 days ago
-        }
-      }
-    ];
-    
-    res.status(200).json(mockRecords);
+
+    const patientId = user._id;
+    console.log('Looking for EHR with patient:', patientId);
+
+    let ehr = await EHR.findOne({ patient: patientId })
+      .populate('patient', 'firstName lastName email')
+      .populate('pastVisits.doctor', 'specialization');
+
+    if (!ehr) {
+      console.log('No EHR found, creating a new one for patient:', patientId);
+      ehr = new EHR({
+        patient: patientId,
+        medicalConditions: [], // Updated to match schema
+        allergies: [],
+        medications: [], // Added to match schema
+        pastVisits: [],
+      });
+      await ehr.save();
+      console.log('New EHR created:', ehr);
+
+      // Re-fetch with populated fields
+      ehr = await EHR.findOne({ patient: patientId })
+        .populate('patient', 'firstName lastName email')
+        .populate('pastVisits.doctor', 'specialization');
+      console.log('Re-fetched EHR with populated fields:', ehr);
+    }
+
+    res.json(ehr);
   } catch (error) {
-    console.error('Error fetching patient records:', error);
+    console.error('Error in GET /api/ehr/auth/my-ehr:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
-// @route   POST /api/ehr/records
-// @desc    Create a new medical record
-// @access  Private (Doctors only)
-router.post(
-  '/records',
-  [
-    protect,
-    authorize('doctor', 'admin'), // Role-based check
-    checkPermission('write:patient-records'), // Permission-based check
-    [
-      check('patientId', 'Patient ID is required').not().isEmpty(),
-      check('recordType', 'Record type is required').not().isEmpty(),
-      check('notes', 'Notes are required').not().isEmpty()
-    ]
-  ],
-  async (req, res) => {
-    try {
-      // This is where you would add the record to the database
-      // For now, just return a success message
-      res.status(201).json({ 
-        message: 'Record created successfully',
-        record: {
-          id: 'new-record-id',
-          ...req.body,
-          createdBy: req.user.id,
-          createdAt: new Date()
-        }
-      });
-    } catch (error) {
-      console.error('Error creating medical record:', error);
-      res.status(500).json({ message: 'Server error', error: error.message });
-    }
-  }
-);
+// @route   PUT /api/ehr/auth/my-ehr
+// @desc    Update authenticated patient's EHR
+// @access  Private (Patient only)
+router.put('/auth/my-ehr', protect, async (req, res) => {
+  try {
+    console.log('PUT /api/ehr/auth/my-ehr called');
+    const user = req.user;
+    console.log('User:', user);
 
-// You can add more routes for updating and deleting records as needed
+    if (user.role !== 'patient') {
+      console.log('User is not a patient, role:', user.role);
+      return res.status(403).json({ message: 'Not authorized, patient only' });
+    }
+
+    const patientId = user._id;
+    console.log('Looking for EHR with patient:', patientId);
+
+    let ehr = await EHR.findOne({ patient: patientId });
+    if (!ehr) {
+      console.log('No EHR found, creating a new one for patient:', patientId);
+      ehr = new EHR({
+        patient: patientId,
+        medicalConditions: [],
+        allergies: [],
+        medications: [],
+        pastVisits: [],
+      });
+    }
+
+    ehr.medicalConditions = req.body.medicalConditions || ehr.medicalConditions; // Updated to match schema
+    ehr.allergies = req.body.allergies || ehr.allergies;
+    ehr.medications = req.body.medications || ehr.medications; // Added to match schema
+    await ehr.save();
+    console.log('EHR updated:', ehr);
+
+    res.json(ehr);
+  } catch (error) {
+    console.error('Error in PUT /api/ehr/auth/my-ehr:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   GET /api/ehr/admin/ehrs
+// @desc    Get all EHRs (Admin only)
+// @access  Private (Admin only)
+router.get('/admin/ehrs', protect, authorize('admin'), async (req, res) => {
+  try {
+    console.log('GET /api/ehr/admin/ehrs called');
+    const ehrs = await EHR.find()
+      .populate('patient', 'firstName lastName email')
+      .populate('pastVisits.doctor', 'specialization');
+    console.log('EHRs found:', ehrs);
+    res.json(ehrs);
+  } catch (error) {
+    console.error('Error in GET /api/ehr/admin/ehrs:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   GET /api/ehr/admin/ehrs/patient/:patientId
+// @desc    Get EHR by patient ID (Admin only)
+// @access  Private (Admin only)
+router.get('/admin/ehrs/patient/:patientId', protect, authorize('admin'), async (req, res) => {
+  try {
+    console.log('GET /api/ehr/admin/ehrs/patient/:patientId called');
+    const patientId = req.params.patientId;
+    console.log('patientId from params:', patientId);
+
+    if (!mongoose.Types.ObjectId.isValid(patientId)) {
+      console.log('Invalid patientId format:', patientId);
+      return res.status(400).json({ message: 'Invalid patient ID' });
+    }
+
+    const patient = await User.findById(patientId);
+    if (!patient || patient.role !== 'patient') {
+      console.log('Patient not found or not a patient:', patient);
+      return res.status(404).json({ message: 'Patient not found' });
+    }
+    console.log('Patient found:', patient);
+
+    let ehr = await EHR.findOne({ patient: patientId })
+      .populate('patient', 'firstName lastName email')
+      .populate('pastVisits.doctor', 'specialization');
+    console.log('EHR found:', ehr);
+
+    if (!ehr) {
+      console.log('No EHR found, creating a new one for patient:', patientId);
+      ehr = new EHR({
+        patient: patientId,
+        medicalConditions: [],
+        allergies: [],
+        medications: [],
+        pastVisits: [],
+      });
+      await ehr.save();
+      console.log('New EHR created:', ehr);
+
+      // Re-fetch with populated fields
+      ehr = await EHR.findOne({ patient: patientId })
+        .populate('patient', 'firstName lastName email')
+        .populate('pastVisits.doctor', 'specialization');
+      console.log('Re-fetched EHR with populated fields:', ehr);
+    }
+
+    res.json(ehr);
+  } catch (error) {
+    console.error('Error in GET /api/ehr/admin/ehrs/patient/:patientId:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   GET /api/ehr/admin/ehrs/:id
+// @desc    Get EHR by EHR ID (Admin only)
+// @access  Private (Admin only)
+router.get('/admin/ehrs/:id', protect, authorize('admin'), async (req, res) => {
+  try {
+    console.log('GET /api/ehr/admin/ehrs/:id called');
+    const ehr = await EHR.findById(req.params.id)
+      .populate('patient', 'firstName lastName email')
+      .populate('pastVisits.doctor', 'specialization');
+    console.log('EHR found:', ehr);
+    if (!ehr) {
+      return res.status(404).json({ message: 'EHR not found' });
+    }
+    res.json(ehr);
+  } catch (error) {
+    console.error('Error in GET /api/ehr/admin/ehrs/:id:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   PUT /api/ehr/admin/ehrs/:id
+// @desc    Update EHR by EHR ID (Admin only)
+// @access  Private (Admin only)
+router.put('/admin/ehrs/:id', protect, authorize('admin'), async (req, res) => {
+  try {
+    console.log('PUT /api/ehr/admin/ehrs/:id called');
+    const ehr = await EHR.findById(req.params.id);
+    console.log('EHR found:', ehr);
+    if (!ehr) {
+      return res.status(404).json({ message: 'EHR not found' });
+    }
+
+    ehr.medicalConditions = req.body.medicalConditions || ehr.medicalConditions;
+    ehr.allergies = req.body.allergies || ehr.allergies;
+    ehr.medications = req.body.medications || ehr.medications;
+    await ehr.save();
+    console.log('EHR updated:', ehr);
+
+    res.json(ehr);
+  } catch (error) {
+    console.error('Error in PUT /api/ehr/admin/ehrs/:id:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   GET /api/ehr/doctor/ehrs/patient/:patientId
+// @desc    Get EHR by patient ID (Doctor only)
+// @access  Private (Doctor only)
+router.get('/doctor/ehrs/patient/:patientId', protect, authorize('doctor'), async (req, res) => {
+  try {
+    console.log('GET /api/ehr/doctor/ehrs/patient/:patientId called');
+    const patientId = req.params.patientId;
+    console.log('patientId from params:', patientId);
+
+    const ehr = await EHR.findOne({ patient: patientId })
+      .populate('patient', 'firstName lastName email')
+      .populate('pastVisits.doctor', 'specialization');
+    console.log('EHR found:', ehr);
+    if (!ehr) {
+      return res.status(404).json({ message: 'EHR not found' });
+    }
+    res.json(ehr);
+  } catch (error) {
+    console.error('Error in GET /api/ehr/doctor/ehrs/patient/:patientId:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
 
 module.exports = router;

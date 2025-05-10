@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'; // Added useState, useEffect
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import axios from 'axios';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -17,17 +17,25 @@ import AdminApprovals from './components/Dashboard/AdminApprovals';
 import AdminUsers from './components/Dashboard/AdminUsers';
 import AdminSettings from './components/Dashboard/AdminSettings';
 import AdminUserDetails from './components/Dashboard/AdminUserDetails';
+import AdminApprovalDetails from './components/Dashboard/AdminApprovalDetails';
 import AppointmentCalendar from './components/Appointments/AppointmentCalendar';
 import BookAppointment from './components/Appointments/BookAppointment';
 import AppointmentDetail from './components/Appointments/AppointmentDetail';
 import TelemedicineCall from './components/TelemedicineCall';
+import Telemedicine from './components/Telemedicine';
+import Patients from './components/Patients';
+import PatientProfile from './components/PatientProfile';
+import PatientRecords from './components/EHR/PatientRecords';
+import Dashboard from './components/Dashboard';
+import AdminEHRs from './components/Dashboard/AdminEHRs';
+import AdminEHRDetails from './components/Dashboard/AdminEHRDetails';
 
 // Set default axios configuration
 axios.defaults.baseURL = 'http://localhost:5000/api';
 axios.interceptors.request.use(config => {
   const token = localStorage.getItem('token');
   if (token) {
-    config.headers['x-auth-token'] = token;
+    config.headers['Authorization'] = `Bearer ${token}`;
   }
   return config;
 });
@@ -49,7 +57,6 @@ const DashboardLoader = ({ children }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Simulate a 2-second loading delay after login
     const timer = setTimeout(() => setIsLoading(false), 2000);
     return () => clearTimeout(timer);
   }, []);
@@ -84,6 +91,16 @@ const AuthenticatedLayout = ({ children }) => {
   );
 };
 
+// Component to handle root redirection
+const RootRedirect = () => {
+  const { user } = useAuth();
+
+  if (user) {
+    return <Navigate to={`/${user.role}-dashboard`} replace />;
+  }
+  return <Navigate to="/login" replace />;
+};
+
 const App = () => {
   return (
     <AuthProvider>
@@ -97,16 +114,29 @@ const App = () => {
               <Route path="/register" element={<Register />} />
               <Route path="/pending-approval" element={<PendingApproval />} />
 
-              {/* Dashboard Routes */}
+              {/* Root Route - Redirect based on role */}
               <Route
                 path="/"
+                element={
+                  <AuthenticatedLayout>
+                    <RootRedirect />
+                  </AuthenticatedLayout>
+                }
+              />
+
+              {/* Dashboard Routes */}
+              <Route
+                path="/dashboard"
                 element={
                   <PrivateRoute
                     element={
                       <AuthenticatedLayout>
-                        <Navigate to="/admin-dashboard" replace />
+                        <DashboardLoader>
+                          <Dashboard />
+                        </DashboardLoader>
                       </AuthenticatedLayout>
                     }
+                    allowedRoles={['patient', 'doctor', 'admin']}
                   />
                 }
               />
@@ -148,6 +178,68 @@ const App = () => {
                       <AuthenticatedLayout>
                         <DashboardLoader>
                           <AdminDashboard />
+                        </DashboardLoader>
+                      </AuthenticatedLayout>
+                    }
+                    allowedRoles={['admin']}
+                  />
+                }
+              />
+
+              {/* EHR Routes */}
+              <Route
+                path="/patient-profile"
+                element={
+                  <PrivateRoute
+                    element={
+                      <AuthenticatedLayout>
+                        <DashboardLoader>
+                          <PatientProfile />
+                        </DashboardLoader>
+                      </AuthenticatedLayout>
+                    }
+                    allowedRoles={['patient']}
+                  />
+                }
+              />
+              <Route
+                path="/patient/records/:patientId"
+                element={
+                  <PrivateRoute
+                    element={
+                      <AuthenticatedLayout>
+                        <DashboardLoader>
+                          <PatientRecords />
+                        </DashboardLoader>
+                      </AuthenticatedLayout>
+                    }
+                    allowedRoles={['patient', 'doctor', 'admin']}
+                  />
+                }
+              />
+              <Route
+                path="/admin/ehrs"
+                element={
+                  <PrivateRoute
+                    element={
+                      <AuthenticatedLayout>
+                        <DashboardLoader>
+                          <AdminEHRs />
+                        </DashboardLoader>
+                      </AuthenticatedLayout>
+                    }
+                    allowedRoles={['admin']}
+                  />
+                }
+              />
+              <Route
+                path="/admin/ehrs/:id"
+                element={
+                  <PrivateRoute
+                    element={
+                      <AuthenticatedLayout>
+                        <DashboardLoader>
+                          <AdminEHRDetails />
                         </DashboardLoader>
                       </AuthenticatedLayout>
                     }
@@ -203,7 +295,22 @@ const App = () => {
                 }
               />
 
-              {/* Telemedicine Route */}
+              {/* Telemedicine Routes */}
+              <Route
+                path="/telemedicine"
+                element={
+                  <PrivateRoute
+                    element={
+                      <AuthenticatedLayout>
+                        <DashboardLoader>
+                          <Telemedicine />
+                        </DashboardLoader>
+                      </AuthenticatedLayout>
+                    }
+                    allowedRoles={['doctor', 'patient']}
+                  />
+                }
+              />
               <Route
                 path="/telemedicine/call/:appointmentId"
                 element={
@@ -220,6 +327,23 @@ const App = () => {
                 }
               />
 
+              {/* Patients Route */}
+              <Route
+                path="/patients"
+                element={
+                  <PrivateRoute
+                    element={
+                      <AuthenticatedLayout>
+                        <DashboardLoader>
+                          <Patients />
+                        </DashboardLoader>
+                      </AuthenticatedLayout>
+                    }
+                    allowedRoles={['doctor']}
+                  />
+                }
+              />
+
               {/* Admin Routes */}
               <Route
                 path="/admin/approvals"
@@ -229,6 +353,21 @@ const App = () => {
                       <AuthenticatedLayout>
                         <DashboardLoader>
                           <AdminApprovals />
+                        </DashboardLoader>
+                      </AuthenticatedLayout>
+                    }
+                    allowedRoles={['admin']}
+                  />
+                }
+              />
+              <Route
+                path="/admin/approvals/:id"
+                element={
+                  <PrivateRoute
+                    element={
+                      <AuthenticatedLayout>
+                        <DashboardLoader>
+                          <AdminApprovalDetails />
                         </DashboardLoader>
                       </AuthenticatedLayout>
                     }

@@ -1,177 +1,238 @@
-from flask import Flask, request, jsonify
-import pandas as pd
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware  # Add this import
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
+from typing import List
+import joblib
 import numpy as np
-import os
-from flask_cors import CORS
-from datetime import datetime, timedelta
-import pickle
-from sklearn.preprocessing import StandardScaler
+import pandas as pd
+from datetime import datetime
 
-app = Flask(__name__)
-CORS(app)
+app = FastAPI()
 
-# Global variables for models
-no_show_model = None
-scaler = None
+# Add CORS middleware to allow requests from the frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # Allow requests from your frontend
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all HTTP methods (GET, POST, OPTIONS, etc.)
+    allow_headers=["*"],  # Allow all headers
+)
 
-# Check if models exist, otherwise create placeholder models
-def load_or_create_models():
-    global no_show_model, scaler
-    
+# Load the no-show prediction model, scaler, and label encoders
+try:
+    model = joblib.load('no_show_model.pkl')
+    scaler = joblib.load('no_show_scaler.pkl')
+    label_encoders = joblib.load('no_show_label_encoders.pkl')
+except Exception as e:
+    raise Exception(f"Error loading model, scaler, or label encoders: {str(e)}")
+
+# Input model for no-show prediction
+class NoShowInput(BaseModel):
+    patientAge: int
+    patientGender: str
+    appointmentType: str
+    appointmentHour: int
+    appointmentDay: int
+    daysUntilAppointment: int
+    previousNoShowRate: float
+    appointmentCount: int
+    reason: str
+    doctorSpecialization: str
+    telemedicineEnabled: bool
+
+# Input models for schedule optimization
+class Appointment(BaseModel):
+    id: str
+    startTime: str  # HH:MM format
+    duration: int  # in minutes
+    noShowProbability: float
+
+class ScheduleInput(BaseModel):
+    doctorId: str
+    date: str  # ISO format
+    existingAppointments: List[Appointment]
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
+from typing import List
+import joblib
+import numpy as np
+import pandas as pd
+from datetime import datetime
+
+app = FastAPI()
+
+# Add CORS middleware to allow requests from the frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Load the no-show prediction model, scaler, and label encoders
+try:
+    model = joblib.load('no_show_model.pkl')
+    scaler = joblib.load('no_show_scaler.pkl')
+    label_encoders = joblib.load('no_show_label_encoders.pkl')
+except Exception as e:
+    raise Exception(f"Error loading model, scaler, or label encoders: {str(e)}")
+
+# Input model for no-show prediction
+class NoShowInput(BaseModel):
+    patientAge: int
+    patientGender: str
+    appointmentType: str
+    appointmentHour: int
+    appointmentDay: int
+    daysUntilAppointment: int
+    previousNoShowRate: float
+    appointmentCount: int
+    reason: str
+    doctorSpecialization: str
+    telemedicineEnabled: bool
+
+# Input models for schedule optimization
+class Appointment(BaseModel):
+    id: str
+    startTime: str  # HH:MM format
+    duration: int  # in minutes
+    noShowProbability: float
+
+class ScheduleInput(BaseModel):
+    doctorId: str
+    date: str  # ISO format
+    existingAppointments: List[Appointment]
+
+@app.post("/predict/no-show")
+async def predict_no_show(data: NoShowInput):
     try:
-        # For now, we'll use simple heuristics instead of ML models
-        print("Using heuristic models for predictions")
-    except:
-        print("Error initializing models")
+        print("Received no-show input:", data.dict())  # Add this log
 
-# Initialize on startup
-load_or_create_models()
+        # Convert input to DataFrame
+        input_df = pd.DataFrame([data.dict()])
 
-@app.route('/predict/no-show', methods=['POST'])
-def predict_no_show():
-    """
-    Predicts the probability of a no-show for an appointment
-    
-    Expected input:
-    {
-        "patientAge": int,
-        "patientGender": string,
-        "appointmentType": string,
-        "appointmentHour": int,
-        "appointmentDay": int,
-        "daysUntilAppointment": int,
-        "previousNoShowRate": float,
-        "appointmentCount": int
-    }
-    """
-    data = request.get_json()
-    
-    # Simple heuristic model to predict no-show probability
-    probability = 0.1  # Base probability
-    
-    # Factors that increase no-show probability
-    if data.get('previousNoShowRate', 0) > 0.2:
-        probability += 0.2
-    
-    if data.get('daysUntilAppointment', 0) > 10:
-        probability += 0.1
-    
-    if data.get('appointmentHour', 12) < 9:
-        probability += 0.1  # Early morning appointments have higher no-show rates
-    
-    if data.get('appointmentHour', 12) > 16:
-        probability += 0.1  # Late afternoon appointments have higher no-show rates
-    
-    if data.get('appointmentDay', 3) == 0 or data.get('appointmentDay', 3) == 6:
-        probability += 0.1  # Weekend appointments have higher no-show rates
-    
-    if data.get('appointmentCount', 0) < 2:
-        probability += 0.1  # New patients have higher no-show rates
-    
-    # Cap probability between 0 and 1
-    probability = max(0, min(1, probability))
-    
-    return jsonify({
-        'probability': probability
-    })
+        # Encode categorical variables
+        categorical_columns = ['patientGender', 'appointmentType', 'reason', 'doctorSpecialization']
+        for col in categorical_columns:
+            if col in label_encoders:
+                # Handle unseen labels by mapping to a default value (e.g., most frequent)
+                input_df[col] = input_df[col].map(
+                    lambda x: x if x in label_encoders[col].classes_ else label_encoders[col].classes_[0]
+                )
+                input_df[col] = label_encoders[col].transform(input_df[col])
+            else:
+                raise ValueError(f"No label encoder found for {col}")
 
-@app.route('/optimize/schedule', methods=['POST'])
-def optimize_schedule():
-    """
-    Optimizes a doctor's schedule for a given day
-    
-    Expected input:
-    {
-        "doctorId": string,
-        "date": string (format: "YYYY-MM-DD"),
-        "existingAppointments": [
-            {
-                "id": string,
-                "startTime": string (format: "HH:MM"),
-                "duration": int,
-                "noShowProbability": float
-            }
+        # Ensure the order of columns matches the training data
+        feature_order = [
+            'patientAge', 'patientGender', 'appointmentType', 'appointmentHour',
+            'appointmentDay', 'daysUntilAppointment', 'previousNoShowRate',
+            'appointmentCount', 'reason', 'doctorSpecialization', 'telemedicineEnabled'
         ]
-    }
-    """
-    data = request.get_json()
-    
-    # Default working hours
-    start_time = "09:00"
-    end_time = "17:00"
-    
-    # Default appointment duration
-    appointment_duration = 30
-    
-    # Parse existing appointments
-    existing_appointments = data.get('existingAppointments', [])
-    
-    # Convert date to datetime
+        input_df = input_df[feature_order]
+
+        # Scale the input data
+        input_scaled = scaler.transform(input_df)
+
+        # Make prediction
+        probability = model.predict_proba(input_scaled)[0][1]  # Probability of no-show (class 1)
+
+        print("Predicted probability:", probability)  # Add this log
+
+        return {"probability": float(probability)}
+    except Exception as e:
+        print("Prediction error:", str(e))  # Add this log
+        raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
+
+@app.post("/optimize/schedule")
+async def optimize_schedule(data: ScheduleInput):
     try:
-        selected_date = datetime.strptime(data.get('date', '2023-01-01'), '%Y-%m-%d')
-    except:
-        selected_date = datetime.now()
-    
-    # Find available slots
-    available_slots = []
-    current_time = datetime.strptime(start_time, '%H:%M')
-    end_datetime = datetime.strptime(end_time, '%H:%M')
-    
-    while current_time < end_datetime:
-        # Check if this time slot overlaps with existing appointments
-        current_time_str = current_time.strftime('%H:%M')
-        slot_end_time = (current_time + timedelta(minutes=appointment_duration)).strftime('%H:%M')
-        
-        is_available = True
-        for appt in existing_appointments:
-            appt_start = datetime.strptime(appt.get('startTime', '00:00'), '%H:%M')
-            appt_end = appt_start + timedelta(minutes=appt.get('duration', 30))
-            
-            if (current_time < appt_end and 
-                current_time + timedelta(minutes=appointment_duration) > appt_start):
-                is_available = False
-                break
-        
-        if is_available:
-            # Calculate optimality score based on time of day
-            hour = current_time.hour
-            
-            # Preference for mid-morning and early afternoon slots
-            time_preference = 0.7  # Default
-            if 9 <= hour < 11:  # Mid-morning slots
-                time_preference = 1.0
-            elif 11 <= hour < 13:  # Around lunch
-                time_preference = 0.6
-            elif 13 <= hour < 15:  # Early afternoon
-                time_preference = 0.9
-            elif 15 <= hour < 17:  # Late afternoon
-                time_preference = 0.8
-            
-            available_slots.append({
-                'startTime': current_time_str,
-                'endTime': slot_end_time,
-                'optimalityScore': time_preference
+        # Parse the date
+        target_date = datetime.fromisoformat(data.date.replace('Z', '+00:00')).date()
+
+        # Parse existing appointments
+        appointments = []
+        for apt in data.existingAppointments:
+            start_time = datetime.strptime(apt.startTime, '%H:%M')
+            start_datetime = datetime.combine(target_date, start_time.time())
+            end_datetime = start_datetime + pd.Timedelta(minutes=apt.duration)
+            appointments.append({
+                'start': start_datetime,
+                'end': end_datetime,
+                'noShowProbability': apt.noShowProbability
             })
-        
-        # Move to next 30-minute slot
-        current_time += timedelta(minutes=appointment_duration)
-    
-    # Sort slots by optimality score (best first)
-    available_slots.sort(key=lambda x: x['optimalityScore'], reverse=True)
-    
-    return jsonify({
-        'doctorId': data.get('doctorId', ''),
-        'date': data.get('date', ''),
-        'availableSlots': available_slots
-    })
 
-@app.route('/', methods=['GET'])
-def health_check():
-    return jsonify({
-        'status': 'healthy',
-        'message': 'ML service is running'
-    })
+        # Define working hours (9:00 to 17:00)
+        start_hour = 9
+        end_hour = 17
+        day_start = datetime.combine(target_date, datetime.strptime(f"{start_hour}:00", '%H:%M').time())
+        day_end = datetime.combine(target_date, datetime.strptime(f"{end_hour}:00", '%H:%M').time())
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5001))
-    app.run(host='0.0.0.0', port=port, debug=True)
+        # Generate possible 30-minute slots
+        slots = []
+        current_time = day_start
+        while current_time < day_end:
+            slot_end = current_time + pd.Timedelta(minutes=30)
+            if slot_end <= day_end:
+                # Check if the slot overlaps with any existing appointment
+                is_available = True
+                for apt in appointments:
+                    if (current_time < apt['end'] and slot_end > apt['start']):
+                        is_available = False
+                        break
+                if is_available:
+                    # Calculate an optimality score based on no-show probabilities of nearby appointments
+                    nearby_risk = 0
+                    nearby_count = 0
+                    for apt in appointments:
+                        if abs((apt['start'] - current_time).total_seconds()) < 3600:  # Within 1 hour
+                            nearby_risk += apt['noShowProbability']
+                            nearby_count += 1
+                    avg_nearby_risk = nearby_risk / (nearby_count + 1)  # Avoid division by zero
+                    optimality_score = 1 - avg_nearby_risk  # Higher score if lower nearby risk
+
+                    slots.append({
+                        "startTime": current_time.strftime('%H:%M'),
+                        "endTime": slot_end.strftime('%H:%M'),
+                        "optimalityScore": float(optimality_score)
+                    })
+            current_time = slot_end
+
+        return {"availableSlots": slots}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Optimization error: {str(e)}")
+    
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    return """
+    <html>
+        <head>
+            <title>E-Health ML Service</title>
+            <style>
+                body { 
+                    font-family: Arial, sans-serif; 
+                    background-color: #f4f4f9; 
+                    text-align: center; 
+                    padding-top: 100px;
+                }
+                h1 {
+                    color: #4CAF50;
+                    font-size: 36px;
+                }
+                p {
+                    color: #555;
+                    font-size: 18px;
+                }
+            </style>
+        </head>
+        <body>
+            <h1>🚀 ML Service for E-Health Management System is Running</h1>
+            <p>Prediction and scheduling endpoints available.</p>
+        </body>
+    </html>
+    """

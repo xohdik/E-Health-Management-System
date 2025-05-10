@@ -1,12 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-
-const api = axios.create({
-  baseURL: 'http://localhost:5000/api',
-  timeout: 5000,
-  withCredentials: true,
-});
+import { useAuth } from '../../context/AuthContext';
 
 const AdminApprovalDetails = () => {
   const { id } = useParams();
@@ -14,10 +9,15 @@ const AdminApprovalDetails = () => {
   const [approval, setApproval] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const { user } = useAuth();
 
   useEffect(() => {
+    if (!user || user.role !== 'admin') {
+      navigate('/login');
+      return;
+    }
     fetchApprovalDetails();
-  }, [id]);
+  }, [id, user, navigate]);
 
   const fetchApprovalDetails = async () => {
     setLoading(true);
@@ -25,13 +25,7 @@ const AdminApprovalDetails = () => {
 
     try {
       console.log('Fetching approval with ID:', id);
-      const token = localStorage.getItem('token');
-      if (!token) throw new Error('No authentication token found');
-
-      const response = await api.get(`/admin/approvals/${id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
+      const response = await axios.get(`/admin/approvals/${id}`);
       console.log('Approval data received:', response.data);
       setApproval(response.data.data);
     } catch (error) {
@@ -58,17 +52,7 @@ const AdminApprovalDetails = () => {
   const handleAccept = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem('token');
-      if (!token) throw new Error('No authentication token found');
-
-      await api.put(
-        `/admin/approvals/${id}/accept`,
-        {},
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-
+      await axios.put(`/admin/approvals/${id}/accept`, {});
       alert('Approval accepted successfully');
       navigate('/admin-dashboard');
     } catch (error) {
@@ -88,17 +72,7 @@ const AdminApprovalDetails = () => {
 
     try {
       setLoading(true);
-      const token = localStorage.getItem('token');
-      if (!token) throw new Error('No authentication token found');
-
-      await api.put(
-        `/admin/approvals/${id}/reject`,
-        { reason: reason.trim() },
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-
+      await axios.put(`/admin/approvals/${id}/reject`, { reason: reason.trim() });
       alert('Approval rejected successfully');
       navigate('/admin-dashboard');
     } catch (error) {

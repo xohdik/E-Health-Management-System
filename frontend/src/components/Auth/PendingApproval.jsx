@@ -8,7 +8,7 @@ const PendingApproval = () => {
       <div className="auth-card">
         <h2>Registration Pending Approval</h2>
         <div className="alert alert-info">
-          <p>Thank you for registering as a doctor. Your account is currently pending administrative approval.</p>
+          <p>Hurray!!!.Thanks for your Registration!. Your account is currently pending administrative approval.</p>
           <p>You will receive an email notification once your account has been approved.</p>
         </div>
         <div className="auth-footer">

@@ -1,13 +1,20 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { useAuth } from '../../context/AuthContext';
 
 const AdminApprovals = () => {
   const navigate = useNavigate();
   const [pendingUsers, setPendingUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
 
   useEffect(() => {
+    if (!user || user.role !== 'admin') {
+      navigate('/login');
+      return;
+    }
+
     const fetchPendingUsers = async () => {
       try {
         const response = await axios.get('/admin/users', { params: { status: 'pending' } });
@@ -19,7 +26,7 @@ const AdminApprovals = () => {
       }
     };
     fetchPendingUsers();
-  }, []);
+  }, [user, navigate]);
 
   if (loading) {
     return (
@@ -38,7 +45,7 @@ const AdminApprovals = () => {
       <h1>Pending Approvals</h1>
       <div className="dashboard-grid">
         {pendingUsers.length === 0 ? (
-          <div className="no-appointments">No pending approvals</div>
+          <div className="no-approvals">No pending approvals</div>
         ) : (
           pendingUsers.map(user => (
             <div key={user._id} className="dashboard-card">

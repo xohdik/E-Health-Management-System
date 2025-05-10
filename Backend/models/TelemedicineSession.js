@@ -40,13 +40,13 @@ const TelemedicineSessionSchema = new mongoose.Schema({
   },
   doctor: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    ref: 'Doctor',
     required: true
   },
   status: {
     type: String,
-    enum: ['scheduled', 'in-progress', 'completed', 'cancelled'],
-    default: 'scheduled'
+    enum: ['pending', 'scheduled', 'active', 'in-progress', 'ended', 'completed', 'canceled', 'cancelled'],
+    default: 'pending'
   },
   startTime: {
     type: Date
@@ -55,7 +55,7 @@ const TelemedicineSessionSchema = new mongoose.Schema({
     type: Date
   },
   duration: {
-    type: Number // in minutes
+    type: Number 
   },
   messages: [MessageSchema],
   notes: {

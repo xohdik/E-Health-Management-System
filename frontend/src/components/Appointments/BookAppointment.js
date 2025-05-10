@@ -1,17 +1,19 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import AuthContext from '../../context/AuthContext';
+import { useAuth } from '../../context/AuthContext';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 
 const BookAppointment = () => {
-  const { user } = useContext(AuthContext);
+  const { user } = useAuth();
   const navigate = useNavigate();
-  
+
   const [loading, setLoading] = useState(true);
+  const [bookingLoading, setBookingLoading] = useState(false);
   const [doctors, setDoctors] = useState([]);
   const [specializations, setSpecializations] = useState([]);
+  const [patientDetails, setPatientDetails] = useState(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [availableSlots, setAvailableSlots] = useState([]);
   const [formData, setFormData] = useState({
@@ -24,19 +26,19 @@ const BookAppointment = () => {
   });
   const [step, setStep] = useState(1);
   const [error, setError] = useState(null);
-  
-  // Fetch doctors and specializations on component mount
+  const [noShowProbability, setNoShowProbability] = useState(null); // New state for no-show probability
+  const [predictionLoading, setPredictionLoading] = useState(false); // New state for prediction loading
+  const [predictionError, setPredictionError] = useState(null); // New state for prediction error
+
+  // Fetch doctors
   useEffect(() => {
     const fetchDoctors = async () => {
       try {
-        const res = await axios.get('http://localhost:5000/api/users/doctors');
+        const res = await axios.get('/users/doctors');
         console.log("Fetched doctors data:", res.data);
         setDoctors(res.data);
-        
-        // Extract unique specializations
         const specs = [...new Set(res.data.map(doc => doc.specialization))];
         setSpecializations(specs);
-        
         setLoading(false);
       } catch (err) {
         console.error('Error fetching doctors:', err);
@@ -44,48 +46,80 @@ const BookAppointment = () => {
         setLoading(false);
       }
     };
-    
+
     fetchDoctors();
   }, []);
-  
-  // Filter doctors by specialization
-  const filteredDoctors = formData.specialization 
+
+  // Fetch patient details
+  useEffect(() => {
+    const fetchPatientDetails = async () => {
+      try {
+        const res = await axios.get('/users/patient-details', {
+          params: { patientId: user.id }
+        });
+        console.log("Fetched patient details:", res.data);
+        setPatientDetails(res.data);
+      } catch (err) {
+        console.error('Error fetching patient details:', err);
+        setError('Failed to load patient details. Please try again later.');
+      }
+    };
+
+    fetchPatientDetails();
+  }, [user.id]);
+
+  const filteredDoctors = formData.specialization
     ? doctors.filter(doc => doc.specialization === formData.specialization)
     : doctors;
-  
-  // Fetch available slots when doctor and date are selected
+
   useEffect(() => {
     const fetchAvailableSlots = async () => {
-      if (!formData.doctorId || !selectedDate) return;
-      
+      if (!formData.doctorId || !selectedDate) {
+        console.log('Skipping fetchAvailableSlots: doctorId or selectedDate missing', {
+          doctorId: formData.doctorId,
+          selectedDate
+        });
+        return;
+      }
+
       try {
         const date = selectedDate.toISOString().split('T')[0];
-        const res = await axios.get('http://localhost:5000/api/appointments/slots', {
+        console.log('Fetching slots for:', { doctorId: formData.doctorId, date });
+
+        const res = await axios.get('/appointments/slots', {
           params: {
             doctorId: formData.doctorId,
             date: date
           }
         });
 
-        setAvailableSlots(res.data);
+        console.log('Available slots response:', res.data);
+        const formattedSlots = res.data
+          .filter(slot => slot.available)
+          .map(slot => {
+            const [hour, minute] = slot.time.split(':').map(Number);
+            const period = hour >= 12 ? 'PM' : 'AM';
+            const adjustedHour = hour % 12 || 12;
+            const timeString = `${adjustedHour}:${minute.toString().padStart(2, '0')} ${period}`;
+            return { time: timeString };
+          });
+        setAvailableSlots(formattedSlots);
       } catch (err) {
         console.error('Error fetching available slots:', err);
         setError('Failed to load available time slots. Please try again later.');
       }
     };
-    
+
     fetchAvailableSlots();
   }, [formData.doctorId, selectedDate]);
-  
-  // Handle form input changes
+
   const handleChange = (e) => {
     setFormData({
       ...formData,
       [e.target.name]: e.target.value
     });
   };
-  
-  // Handle date selection
+
   const handleDateChange = (date) => {
     setSelectedDate(date);
     setFormData({
@@ -93,37 +127,28 @@ const BookAppointment = () => {
       date: date
     });
   };
-  
-  // Handle slot selection - FIXED to use just the time string
+
   const handleSlotSelect = (timeString) => {
     setFormData({
       ...formData,
       slot: timeString
     });
   };
-  
-  // New function to handle doctor selection with debugging
+
   const selectDoctor = (doctorId) => {
     console.log("Selecting doctor with ID:", doctorId);
-    console.log("Doctor object type:", typeof doctorId);
-    
-    // Set doctor ID in form data
-    setFormData(prev => {
-      const updated = {...prev, doctorId: doctorId};
-      console.log("Updated formData:", updated);
-      return updated;
-    });
+    setFormData(prev => ({
+      ...prev,
+      doctorId: doctorId
+    }));
   };
-  
-  // Get selected doctor information
+
   const getSelectedDoctor = () => {
     return doctors.find(doc => doc._id === formData.doctorId) || null;
   };
-  
-  // Get doctor display name
+
   const getDoctorDisplayName = (doctor) => {
     if (!doctor) return 'Not selected';
-    
     if (doctor.user && doctor.user.firstName) {
       return `Dr. ${doctor.user.firstName} ${doctor.user.lastName}`;
     } else if (doctor.firstName) {
@@ -132,115 +157,230 @@ const BookAppointment = () => {
       return `Doctor (${doctor.specialization})`;
     }
   };
-  
-  // Move to next step with debugging
+
   const nextStep = () => {
     console.log("Current step:", step);
     console.log("Current formData:", formData);
-    
+
     if (step === 1 && !formData.specialization) {
       setError('Please select a specialization');
-      console.log("Validation failed: No specialization selected");
       return;
     }
-    
+
     if (step === 2 && !formData.doctorId) {
       setError('Please select a doctor');
-      console.log("Validation failed: No doctor selected");
       return;
     }
-    
+
     if (step === 3 && (!formData.date || !formData.slot)) {
       setError('Please select a date and time slot');
-      console.log("Validation failed: No date or time slot selected");
       return;
     }
-    
-    console.log("Validation passed, moving to next step");
+
     setError(null);
     setStep(step + 1);
   };
-  
-  // Move to previous step
+
   const prevStep = () => {
+    setError(null);
     setStep(step - 1);
   };
-  
+
+  // Function to predict no-show probability
+  const predictNoShow = async () => {
+    if (!formData.reason) {
+      setPredictionError('Please provide a reason for your appointment');
+      setNoShowProbability(null);
+      return;
+    }
+
+    if (!patientDetails) {
+      setPredictionError('Patient details are not loaded. Please try again later.');
+      setNoShowProbability(null);
+      return;
+    }
+
+    if (!formData.slot) {
+      setPredictionError('Please select a time slot');
+      setNoShowProbability(null);
+      return;
+    }
+
+    if (!formData.date) {
+      setPredictionError('Please select a date');
+      setNoShowProbability(null);
+      return;
+    }
+
+    setPredictionLoading(true);
+    setPredictionError(null);
+    setNoShowProbability(null);
+
+    try {
+      const [time, period] = formData.slot.split(' ');
+      if (!time || !period) {
+        throw new Error('Invalid time slot format');
+      }
+      let [hour, minute] = time.split(':').map(Number);
+      if (isNaN(hour) || isNaN(minute)) {
+        throw new Error('Invalid time slot values');
+      }
+      if (period === 'PM' && hour !== 12) hour += 12;
+      if (period === 'AM' && hour === 12) hour = 0;
+
+      const appointmentDate = new Date(formData.date);
+      if (isNaN(appointmentDate.getTime())) {
+        throw new Error('Invalid appointment date');
+      }
+      const today = new Date();
+      const daysUntilAppointment = Math.ceil(
+        (appointmentDate - today) / (1000 * 60 * 60 * 24)
+      );
+      const appointmentDay = appointmentDate.getDay();
+
+      const patientGender = patientDetails.gender === 'Unknown' ? 'Other' : patientDetails.gender;
+
+      const noShowInput = {
+        patientAge: patientDetails.age,
+        patientGender: patientGender,
+        appointmentType: formData.type,
+        appointmentHour: hour,
+        appointmentDay: appointmentDay,
+        daysUntilAppointment: daysUntilAppointment,
+        previousNoShowRate: patientDetails.previousNoShowRate,
+        appointmentCount: patientDetails.appointmentCount,
+        reason: formData.reason,
+        doctorSpecialization: formData.specialization,
+        telemedicineEnabled: formData.type === 'telemedicine'
+      };
+
+      console.log('noShowInput:', noShowInput);
+
+      const mlResponse = await axios.post('http://localhost:5001/predict/no-show', noShowInput);
+      console.log("ML Service Response:", mlResponse.data);
+
+      const probability = mlResponse.data.probability;
+      setNoShowProbability(probability);
+    } catch (error) {
+      console.error('Prediction error:', {
+        message: error.message,
+        code: error.code,
+        response: error.response?.data,
+        status: error.response?.status,
+        fullError: error
+      });
+
+      if (error.message.includes('5001')) {
+        setPredictionError('ML service is unavailable. Please try again later.');
+      } else if (error.response?.data?.detail) {
+        const errorMessages = error.response.data.detail.map(err => err.msg).join(', ');
+        setPredictionError(`ML service error: ${errorMessages}`);
+      } else {
+        setPredictionError(
+          error.response?.data?.message ||
+          error.message ||
+          'Failed to predict no-show probability. Please try again.'
+        );
+      }
+    } finally {
+      setPredictionLoading(false);
+    }
+  };
+
   const bookAppointment = async (e) => {
     e.preventDefault();
-    
+
     if (!formData.reason) {
       setError('Please provide a reason for your appointment');
       return;
     }
-  
+
+    if (noShowProbability === null && !predictionError) {
+      setError('Please wait for the no-show probability to be calculated');
+      return;
+    }
+
+    setBookingLoading(true);
+    setError(null);
+
     try {
-      // Get the token
-      const token = localStorage.getItem('token');
-      
-      // Format the date for the backend
-      const dateStr = formData.date.toISOString().split('T')[0]; // Format: YYYY-MM-DD
-      
-      // Create the appointment payload matching the backend requirements
+      // Step 1: Parse slot for backend
+      const [time, period] = formData.slot.split(' ');
+      if (!time || !period) {
+        throw new Error('Invalid time slot format');
+      }
+      let [hour, minute] = time.split(':').map(Number);
+      if (isNaN(hour) || isNaN(minute)) {
+        throw new Error('Invalid time slot values');
+      }
+      if (period === 'PM' && hour !== 12) hour += 12;
+      if (period === 'AM' && hour === 12) hour = 0;
+
+      // Step 2: Format the appointment data
+      const slotString = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+      const dateStr = formData.date.toISOString().split('T')[0];
       const appointmentData = {
         doctorId: formData.doctorId,
+        patientId: user.id,
         date: dateStr,
-        slot: formData.slot, // This is already the time string after our fix
+        slot: slotString,
         type: formData.type,
         reason: formData.reason,
-        notes: '' // Optional notes
+        symptoms: formData.reason, // Use reason as symptoms
+        notes: '',
+        noShowProbability: noShowProbability || 0 // Use stored probability, fallback to 0
       };
-      
+
       console.log("Sending appointment data:", appointmentData);
-      
-      // Send the request to create the appointment
-      const response = await axios.post(
-        'http://localhost:5000/api/appointments/book',
-        appointmentData,
-        { 
-          headers: { 
-            Authorization: `Bearer ${token}` 
-          } 
-        }
-      );
-  
-      // On success, redirect to dashboard
+
+      // Step 3: Book the appointment
+      const response = await axios.post('/appointments/book', appointmentData);
       console.log("Appointment created successfully:", response.data);
-      navigate('/appointments');
-      
+      navigate('/patient-dashboard');
     } catch (error) {
       console.error('Booking error:', {
         message: error.message,
-        fullError: error,
-        response: error.response?.data
+        code: error.code,
+        response: error.response?.data,
+        status: error.response?.status,
+        fullError: error
       });
-      
+
       if (error.response?.data?.errors) {
-        // Handle validation errors from backend
         const errorMessages = error.response.data.errors.map(err => err.msg).join(', ');
         setError(`Please fix the following: ${errorMessages}`);
       } else {
         setError(
-          error.response?.data?.message || 
+          error.response?.data?.message ||
+          error.message ||
           'Failed to book appointment. Please try again.'
         );
       }
+    } finally {
+      setBookingLoading(false);
     }
   };
-  
-  if (loading) {
-    return <div className="loading">Loading...</div>;
+
+  if (loading || !patientDetails) {
+    return (
+      <div className="loading-container">
+        <div className="loading-content">
+          <h1 className="loading-logo">E-Health</h1>
+          <div className="loading-bar"></div>
+          <p className="loading-text">Loading...</p>
+        </div>
+      </div>
+    );
   }
-  
-  // Get the selected doctor for display
+
   const selectedDoctor = getSelectedDoctor();
-  
+
   return (
     <div className="book-appointment-container">
       <h1>Book an Appointment</h1>
-      
+
       {error && <div className="alert alert-danger">{error}</div>}
-      
+
       <div className="appointment-steps">
         <div className={`step ${step === 1 ? 'active' : step > 1 ? 'completed' : ''}`}>
           <span className="step-number">1</span>
@@ -259,16 +399,26 @@ const BookAppointment = () => {
           <span className="step-title">Confirm Details</span>
         </div>
       </div>
-      
-      <div className="appointment-form">
+
+      {bookingLoading && (
+        <div className="loading-container">
+          <div className="loading-content">
+            <h1 className="loading-logo">E-Health</h1>
+            <div className="loading-bar"></div>
+            <p className="loading-text">Booking Your Appointment...</p>
+          </div>
+        </div>
+      )}
+
+      <div className="appointment-form" style={{ display: bookingLoading ? 'none' : 'block' }}>
         {step === 1 && (
           <div className="form-step">
             <h2>Select Specialization</h2>
             <div className="form-group">
               <label>Medical Specialization:</label>
-              <select 
-                name="specialization" 
-                value={formData.specialization} 
+              <select
+                name="specialization"
+                value={formData.specialization}
                 onChange={handleChange}
                 className="form-control"
               >
@@ -285,15 +435,15 @@ const BookAppointment = () => {
             </div>
           </div>
         )}
-        
+
         {step === 2 && (
           <div className="form-step">
             <h2>Choose Doctor</h2>
             <div className="doctors-list">
               {filteredDoctors.length > 0 ? (
                 filteredDoctors.map(doctor => (
-                  <div 
-                    key={doctor._id} 
+                  <div
+                    key={doctor._id}
                     className={`doctor-card ${formData.doctorId === doctor._id ? 'selected' : ''}`}
                     onClick={() => selectDoctor(doctor._id)}
                   >
@@ -306,8 +456,8 @@ const BookAppointment = () => {
                       <p className="experience">{doctor.yearsOfExperience} years experience</p>
                       <div className="rating">
                         {[...Array(5)].map((_, i) => (
-                          <i 
-                            key={i} 
+                          <i
+                            key={i}
                             className={`fas fa-star ${i < doctor.rating ? 'filled' : ''}`}
                           ></i>
                         ))}
@@ -329,14 +479,12 @@ const BookAppointment = () => {
             </div>
           </div>
         )}
-        
+
         {step === 3 && (
           <div className="form-step">
             <h2>Pick Date & Time</h2>
 
             <div className="date-time-selection">
-              
-              {/* Date Picker */}
               <div className="date-picker">
                 <label>Select Date:</label>
                 <DatePicker
@@ -348,7 +496,6 @@ const BookAppointment = () => {
                 />
               </div>
 
-              {/* Appointment Type */}
               <div className="appointment-type">
                 <label>Appointment Type:</label>
                 <div className="type-options">
@@ -375,13 +522,12 @@ const BookAppointment = () => {
                 </div>
               </div>
 
-              {/* Time Slots - FIXED */}
               <div className="time-slots">
                 <label>Available Time Slots:</label>
                 {availableSlots.length > 0 ? (
                   <div className="slots-grid">
                     {availableSlots.map((slot, index) => (
-                      <div 
+                      <div
                         key={index}
                         className={`time-slot ${formData.slot === slot.time ? 'selected' : ''}`}
                         onClick={() => handleSlotSelect(slot.time)}
@@ -396,7 +542,6 @@ const BookAppointment = () => {
               </div>
             </div>
 
-            {/* Navigation Buttons */}
             <div className="form-actions">
               <button className="btn btn-secondary" onClick={prevStep}>
                 Back
@@ -439,30 +584,92 @@ const BookAppointment = () => {
                 </span>
               </div>
             </div>
-            
+
             <div className="form-group">
               <label>Reason for Appointment:</label>
               <textarea
                 name="reason"
                 value={formData.reason}
                 onChange={handleChange}
+                onBlur={predictNoShow} // Add onBlur handler
                 className="form-control"
                 rows="3"
                 placeholder="Please briefly describe your symptoms or reason for visit"
               ></textarea>
             </div>
-            
+
+            {/* Display prediction loading, error, or result */}
+            {predictionLoading && (
+              <div className="prediction-loading">
+                Calculating no-show probability...
+              </div>
+            )}
+            {predictionError && (
+              <div className="alert alert-danger">
+                {predictionError}
+              </div>
+            )}
+            {noShowProbability !== null && !predictionLoading && !predictionError && (
+              <div className="prediction-result">
+                No-Show Probability: {(noShowProbability * 100).toFixed(2)}%
+                {noShowProbability > 0.5 && (
+                  <span className="prediction-warning">
+                    {' '}This is a high no-show risk. Consider confirming your attendance.
+                  </span>
+                )}
+              </div>
+            )}
+
             <div className="form-actions">
-              <button className="btn btn-secondary" onClick={prevStep}>
+              <button
+                className="btn btn-secondary"
+                onClick={prevStep}
+                disabled={bookingLoading}
+              >
                 Back
               </button>
-              <button className="btn btn-primary" onClick={bookAppointment}>
-                Confirm Booking
+              <button
+                className="btn btn-primary"
+                onClick={bookAppointment}
+                disabled={bookingLoading || predictionLoading}
+              >
+                {bookingLoading ? 'Booking...' : 'Confirm Booking'}
               </button>
             </div>
           </div>
         )}
       </div>
+
+      <style>{`
+        
+        .alert {
+          padding: 1rem;
+          border-radius: 5px;
+          margin-bottom: 1.5rem;
+        }
+
+        .alert-danger {
+          background: #f8d7da;
+          color: #721c24;
+        }
+
+        .prediction-loading {
+          margin-top: 0.5rem;
+          color: #666;
+          font-style: italic;
+        }
+
+        .prediction-result {
+          margin-top: 0.5rem;
+          color: #333;
+          font-weight: 500;
+        }
+
+        .prediction-warning {
+          color: #e74c3c;
+          font-weight: 400;
+        }
+      `}</style>
     </div>
   );
 };

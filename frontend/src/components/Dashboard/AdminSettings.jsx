@@ -1,8 +1,15 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 
 const AdminSettings = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+
+  if (!user || user.role !== 'admin') {
+    navigate('/login');
+    return null;
+  }
 
   return (
     <div className="dashboard">

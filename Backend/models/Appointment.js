@@ -34,6 +34,10 @@ const AppointmentSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  symptoms: { // Add symptoms field
+    type: String,
+    required: false // Optional field
+  },
   notes: {
     type: String
   },
@@ -41,6 +45,14 @@ const AppointmentSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  callStatus: { 
+    type: String, 
+    enum: ['pending', 'ongoing', 'completed'], 
+    default: 'pending' 
+  },
+  callDuration: { 
+    type: Number 
+  }, // In seconds
   createdAt: {
     type: Date,
     default: Date.now

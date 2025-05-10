@@ -1,12 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-
-const api = axios.create({
-  baseURL: 'http://localhost:5000/api',
-  timeout: 10000,
-  withCredentials: true,
-});
+import { useAuth } from '../../context/AuthContext';
 
 const AdminUserDetails = () => {
   const { id } = useParams();
@@ -15,23 +10,22 @@ const AdminUserDetails = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
+  const { user: authUser } = useAuth();
 
   useEffect(() => {
+    if (!authUser || authUser.role !== 'admin') {
+      navigate('/login');
+      return;
+    }
     fetchUserDetails();
-  }, [id]);
+  }, [id, authUser, navigate]);
 
   const fetchUserDetails = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const token = localStorage.getItem('token');
-      if (!token) throw new Error('No authentication token found');
-
-      const response = await api.get(`/admin/users/${id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
+      const response = await axios.get(`/admin/users/${id}`);
       setUser(response.data.data || response.data);
     } catch (error) {
       console.error('Error fetching user details:', error);
@@ -56,13 +50,7 @@ const AdminUserDetails = () => {
     try {
       setLoading(true);
       setError(null);
-      const token = localStorage.getItem('token');
-      if (!token) throw new Error('No authentication token found');
-
-      await api.put(`/admin/users/${id}/approve`, {}, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
+      await axios.put(`/admin/users/${id}/approve`, {});
       fetchUserDetails();
       setSuccessMessage('User has been approved successfully');
     } catch (error) {
@@ -82,13 +70,7 @@ const AdminUserDetails = () => {
     try {
       setLoading(true);
       setError(null);
-      const token = localStorage.getItem('token');
-      if (!token) throw new Error('No authentication token found');
-
-      await api.put(`/admin/users/${id}/reject`, {}, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
+      await axios.put(`/admin/users/${id}/reject`, {});
       fetchUserDetails();
       setSuccessMessage('User has been rejected');
     } catch (error) {
